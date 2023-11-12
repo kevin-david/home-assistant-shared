@@ -1,0 +1,129 @@
+substitutions:
+  name: honeywell-17000s
+
+esphome:
+  name: $name
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  
+  ap:
+    ssid: "$name Flbk Hotspot"
+    password: !secret fallback_password
+
+esp8266:
+  board: d1_mini
+  
+logger:
+api:
+ota:
+captive_portal:
+
+switch:
+  - platform: gpio
+    internal: true
+    pin: 5
+    id: relay_off
+    name: "$name Off"
+    icon: "mdi:fan"
+    on_turn_on:
+    - delay: 500ms
+    - switch.turn_off: relay_off
+  - platform: gpio
+    internal: true
+    pin: 13
+    id: relay_low
+    name: "$name Low"
+    icon: "mdi:fan"
+    on_turn_on:
+    - delay: 500ms
+    - switch.turn_off: relay_low
+  - platform: gpio
+    internal: true
+    pin: 4
+    id: relay_medium
+    name: "$name Medium"
+    icon: "mdi:fan"
+    on_turn_on:
+    - delay: 500ms
+    - switch.turn_off: relay_medium
+  - platform: gpio
+    internal: true
+    pin: 12
+    id: relay_high
+    name: "$name High"
+    icon: "mdi:fan"
+    on_turn_on:
+    - delay: 500ms
+    - switch.turn_off: relay_high
+
+# Adapted from https://community.home-assistant.io/t/esp-home-3-speed-fan-conversion/319552/9
+output:
+  - platform: template
+    id: airfilter_1
+    type: float 
+    write_action:
+      - if:
+          condition:
+            lambda: return ((state == 0));
+          then:
+            - switch.turn_on: relay_off
+      - if:
+          condition:
+            lambda: return ((state > 0) && (state < 0.4));
+          then:
+            - switch.turn_on: relay_low
+      - if:
+          condition:
+            lambda: return ((state > 0.4) && (state < 0.7));
+          then:
+            - switch.turn_on: relay_medium
+      - if:
+          condition:
+            lambda: return ((state > 0.7));
+          then:
+            - switch.turn_on: relay_high
+
+fan:
+  - platform: speed
+    id: air_filter
+    output: airfilter_1
+    name: "$name"
+    speed_count: 3
+
+text_sensor: #Human Readable Uptime
+  - platform: template
+    name: $name Uptime
+    id: uptime_human
+    icon: mdi:clock-start
+
+sensor:
+  - platform: wifi_signal
+    name: "$name WiFi Signal"
+    update_interval: 60s
+    
+  - platform: uptime # Uptime in Seconds
+    name: $name Uptime Sensor
+    id: uptime_sensor
+    update_interval: 60s
+    internal: True
+    on_raw_value:
+      then:
+        - text_sensor.template.publish:
+            id: uptime_human
+            state: !lambda |-
+              int seconds = round(id(uptime_sensor).raw_state);
+              int days = seconds / (24 * 3600);
+              seconds = seconds % (24 * 3600);
+              int hours = seconds / 3600;
+              seconds = seconds % 3600;
+              int minutes = seconds /  60;
+              seconds = seconds % 60;
+              return (
+                (days ? String(days) + "d " : "") +
+                (hours ? String(hours) + "h " : "") +
+                (minutes ? String(minutes) + "m " : "") +
+                (String(seconds) + "s")
+              ).c_str();
