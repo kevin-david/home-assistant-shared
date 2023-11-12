@@ -1,2 +1,2 @@
 # home-assistant-shared
-Shared home assistant scripts, automations, ESPHome devices, etc.
+Home assistant scripts, automations, ESPHome devices, etc.
