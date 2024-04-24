@@ -1,0 +1,358 @@
+substitutions:
+  name: airgradient-02-esp32
+  sgp30_eco2_baseline: 'YOUR_VALUE_HERE'
+  sgp30_tvoc_baseline: 'YOUR_VALUE_HERE'
+  
+### Everything below this can be copy/paste between similar devices
+
+esphome:
+  name: $name
+  platformio_options:
+    board_build.flash_mode: dio # Necessary for esp-idf framework
+
+esp32:
+  board: lolin_c3_mini
+  framework:
+    type: esp-idf
+
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  password: !secret ota_password
+
+wifi:
+  ssid: !secret basement_wifi_ssid
+  password: !secret wifi_password
+  output_power: 8.5dB # Wifi Connections failed without this - see https://forum.airgradient.com/t/new-wemos-board/251/17
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "$name Flbk"
+    password: !secret fallback_password
+
+captive_portal:
+
+# Configuration for AirGradient DIY v2 device
+# https://www.esphome-devices.com/devices/AirGradient-DIY/
+
+# https://esphome.io/components/uart.html#uart
+uart:
+  - rx_pin: GPIO6
+    tx_pin: GPIO7
+    baud_rate: 9600
+    id: senseair_s8_uart
+
+  - rx_pin: GPIO1
+    tx_pin: GPIO0
+    baud_rate: 9600
+    id: pms5003_uart
+
+i2c: # i2c bus still seems flaky, explore disabling scanning?
+  scl: GPIO10
+  sda: GPIO8
+  #frequency: 200kHz # Note, may affect Wifi settings - https://community.home-assistant.io/t/esphome-fails-to-connect-to-wifi-after-update/395150/13, and SHT3xD https://github.com/esphome/issues/issues/5303
+  
+sensor:
+    # https://esphome.io/components/sensor/pmsx003.html?highlight=pms5003
+  - platform: pmsx003
+    type: PMSX003
+    uart_id: pms5003_uart
+    pm_1_0:
+      name: "$name PM <1.0µm"
+      id: pm1
+      filters:
+        - sliding_window_moving_average:
+            window_size: 30
+            send_every: 30
+    pm_2_5:
+      name: "$name PM <2.5µm"
+      id: pm2_5
+      filters:
+        - sliding_window_moving_average:
+            window_size: 30
+            send_every: 30
+    pm_10_0:
+      name: "$name PM <10.0µm"
+      id: pm10
+      filters:
+        - sliding_window_moving_average:
+            window_size: 30
+            send_every: 30
+
+    # https://esphome.io/components/sensor/senseair.html
+  - platform: senseair
+    id: senseair_s8
+    co2:
+      name: "$name CO2"
+      id: co2
+    update_interval: 60s
+    uart_id: senseair_s8_uart
+
+    # https://esphome.io/components/sensor/sht3xd.html?highlight=sht31
+  - platform: sht3xd
+    temperature:
+      name: "$name Temperature"
+      id: temp
+    humidity:
+      name: "$name Humidity"
+      id: humidity
+    update_interval: 60s
+    heater_enabled: false
+
+  - platform: sgp30
+    eco2:
+      name: "$name eCO2"
+      filters:
+        - median:
+            window_size: 59
+            send_every: 59
+            send_first_at: 29
+    tvoc:
+      name: "$name TVOC"
+      filters:
+        - median:
+            window_size: 59
+            send_every: 59
+            send_first_at: 29
+    eco2_baseline:
+      name: "$name eCO2 baseline"
+      unit_of_measurement: "°"
+    tvoc_baseline:
+      name: "$name TVOC baseline"
+      unit_of_measurement: "°"
+    compensation: 
+      temperature_source: temp
+      humidity_source: humidity
+    store_baseline: yes
+    update_interval: 1s
+    baseline:
+      eco2_baseline: $sgp30_eco2_baseline
+      tvoc_baseline: $sgp30_tvoc_baseline
+    
+    # The WHO guidelines work with 24-hour averages of the PM2.5 and PM10 sensors
+  - platform: template
+    name: "$name PM <2.5µm 24h average"
+    id: pm2_5_avg_24h
+    icon: mdi:chemical-weapon
+    unit_of_measurement: µg/m³
+    lambda: |-
+      return id(pm2_5).state;
+    update_interval: 60s
+    filters:
+      - sliding_window_moving_average:
+          window_size: 1440  # = 24 hours x 60 minutes
+          send_every: 1
+    on_value:
+      then:
+        - script.execute: update_aqi
+  - platform: template
+    name: "$name PM <10.0µm 24h average"
+    id: pm10_avg_24h
+    icon: mdi:chemical-weapon
+    unit_of_measurement: µg/m³
+    lambda: |-
+      return id(pm10).state;
+    update_interval: 60s
+    filters:
+      - sliding_window_moving_average:
+          window_size: 1440  # = 24 hours x 60 minutes
+          send_every: 1
+    on_value:
+      then:
+        - script.execute: update_aqi
+  
+  - platform: wifi_signal
+    name: "$name WiFi Signal"
+    update_interval: 5min
+    
+  - platform: uptime # Uptime in Seconds
+    name: $name Uptime Sensor
+    id: uptime_sensor
+    update_interval: 5min
+    internal: True
+    on_raw_value:
+      then:
+        - text_sensor.template.publish:
+            id: uptime_human
+            state: !lambda |-
+              int seconds = round(id(uptime_sensor).raw_state);
+              int days = seconds / (24 * 3600);
+              seconds = seconds % (24 * 3600);
+              int hours = seconds / 3600;
+              seconds = seconds % 3600;
+              int minutes = seconds /  60;
+              return (
+                (days ? to_string(days) + "d " : "") +
+                (hours ? to_string(hours) + "h " : "") +
+                (minutes ? to_string(minutes) + "m" : "")
+              ).c_str();
+              
+# A textual presentation of the AQI
+text_sensor:
+  - platform: template
+    name: "$name Air Quality Index"
+    id: aqi
+    icon: mdi:air-filter
+  - platform: template  # Human Readable Uptime
+    name: $name Uptime
+    id: uptime_human
+    icon: mdi:clock-start
+    
+# This script is called on every update of the relevant sensor values.
+script:
+  - id: update_aqi
+    mode: restart
+    then:
+      # Bad if at least one of the sensor values is bad
+      - if:
+          condition:
+            or:
+              - sensor.in_range:
+                  id: co2
+                  above: 1199
+              - sensor.in_range:
+                  id: pm2_5_avg_24h
+                  above: 25
+              - sensor.in_range:
+                  id: pm10_avg_24h
+                  above: 50
+          then:
+            - text_sensor.template.publish:
+                id: aqi
+                state: Bad
+          else:
+            # Acceptable if at least one of the sensor values is acceptable
+            - if:
+                condition:
+                  or:
+                    - sensor.in_range:
+                        id: co2
+                        above: 899
+                    - sensor.in_range:
+                        id: pm2_5_avg_24h
+                        above: 12
+                    - sensor.in_range:
+                        id: pm10_avg_24h
+                        above: 25
+                then:
+                  - text_sensor.template.publish:
+                      id: aqi
+                      state: Acceptable
+                else:
+                  # Otherwise good (all of the sensor values are good)
+                  - text_sensor.template.publish:
+                      id: aqi
+                      state: Good
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+display:
+  - platform: ssd1306_i2c
+    # https://esphome.io/components/display/ssd1306.html?highlight=display
+    model: "SH1106 128x64"
+    id: oled_display
+    reset_pin: GPIO2
+    address: 0x3C
+    update_interval: 2s # May fix wifi issues. Also check i2c frequency. https://github.com/esphome/issues/issues/1329
+    pages:
+      - id: display_pm2_10
+        lambda: |-
+          if (id(homeassistant_time).now().hour > 22 || id(homeassistant_time).now().hour < 7)
+          {
+            it.print(0, 0, id(roboto), ".");
+          }
+          else
+          {
+            it.printf(0, 0, id(roboto), "2.5 %.0f", id(pm2_5).state);
+            it.printf(0, 24, id(roboto), "10  %.0f",id(pm10).state);
+          }
+      - id: display_co2
+        lambda: |-
+          if (id(homeassistant_time).now().hour > 22 || id(homeassistant_time).now().hour < 7)
+          {
+            it.print(it.get_width()/2, 0, id(roboto), TextAlign::TOP_CENTER, ".");
+          }
+          else
+          {
+            it.print(0, 0, id(roboto), "CO2");
+            it.printf(64, 24, id(roboto), TextAlign::TOP_RIGHT, "%.0f",id(co2).state);
+          }
+      # Display temp and humidity on the same page
+      - id: display_temp_humidity
+        lambda: |-
+          if (id(homeassistant_time).now().hour > 22 || id(homeassistant_time).now().hour < 7)
+          {
+            it.print(it.get_width(), 0, id(roboto), TextAlign::TOP_RIGHT, ".");
+          }
+          else
+          {
+            it.printf(0, 0, id(roboto), "%.1f°F",(id(temp).state * 1.8) + 32);
+            it.printf(64, 24, id(roboto), TextAlign::TOP_RIGHT, "%.0f%%",id(humidity).state);
+          }
+
+font:
+  # gfonts://family[@weight]
+  - file: "gfonts://Roboto"
+    id: roboto
+    size: 21
+    
+interval:
+  - interval: 3s
+    # Cycle through page on display
+    then:
+      - display.page.show_next: oled_display
+      - component.update: oled_display
+  - interval: 180s
+    # Two-minute interval to extend the life span of the PMS5003 sensor
+    then:
+      - switch.turn_on: pms_switch
+      - delay: 45s
+      - switch.turn_off: pms_switch
+
+# Source: https://github.com/airgradienthq/arduino/blob/master/AirGradient.cpp#L123
+switch:
+  - platform: template
+    name: "$name PMS5003"
+    internal: true
+    id: pms_switch
+    optimistic: true
+    turn_on_action:
+      - uart.write:
+          id: pms5003_uart
+          data: [0x42, 0x4D, 0xE4, 0x00, 0x01, 0x01, 0x74]
+    turn_off_action:
+      - uart.write:
+          id: pms5003_uart
+          data: [0x42, 0x4D, 0xE4, 0x00, 0x00, 0x01, 0x73]
+  - platform: template
+    name: "$name ABC"
+    optimistic: true
+    on_turn_on:
+      senseair.abc_enable: senseair_s8
+    on_turn_off:
+      senseair.abc_disable: senseair_s8
+  - platform: restart
+    name: "$name Restart"
+
+button:
+  - platform: template
+    name: $name Manual Senseair S8 Calibration
+    id: calibrate_sensair_s8
+    on_press:
+      then:
+        - senseair.background_calibration: senseair_s8
+        - delay: 75s
+        - senseair.background_calibration_result: senseair_s8
+  - platform: template
+    name: $name Log Senseair S8 ABC Period
+    id: get_senseair_s8_abc_period
+    on_press:
+      then:
+          - senseair.abc_get_period: senseair_s8
