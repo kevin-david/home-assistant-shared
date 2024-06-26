@@ -8,7 +8,7 @@ substitutions:
 esphome:
   name: $name
   platformio_options:
-    board_build.flash_mode: dio # Necessary for esp-idf framework
+    board_build.flash_mode: dio # Necessary for esp-idf framework https://github.com/platformio/platform-espressif32/issues/630
 
 esp32:
   board: lolin_c3_mini
@@ -16,6 +16,7 @@ esp32:
     type: esp-idf
 
 logger:
+  baud_rate: 0 # Disabled because we need two UARTs (for CO2 and PM sensors) - this used to work fine without this directive pre 2024.5.x / 6.x?
 
 # Enable Home Assistant API
 api:
@@ -23,6 +24,7 @@ api:
     key: !secret api_encryption_key
 
 ota:
+  platform: esphome
   password: !secret ota_password
 
 wifi:
@@ -36,6 +38,9 @@ wifi:
     password: !secret fallback_password
 
 captive_portal:
+
+bluetooth_proxy: # Optional and can be removed
+  active: true
 
 # Configuration for AirGradient DIY v2 device
 # https://www.esphome-devices.com/devices/AirGradient-DIY/
@@ -52,10 +57,11 @@ uart:
     baud_rate: 9600
     id: pms5003_uart
 
-i2c: # i2c bus still seems flaky, explore disabling scanning?
+i2c: # if i2c bus still seems flaky, explore disabling scanning?
   scl: GPIO10
   sda: GPIO8
-  #frequency: 200kHz # Note, may affect Wifi settings - https://community.home-assistant.io/t/esphome-fails-to-connect-to-wifi-after-update/395150/13, and SHT3xD https://github.com/esphome/issues/issues/5303
+  frequency: 300kHz # highest frequency that works for all components
+  #timeout: 200us # suggested here: https://esphome.io/components/sensor/sht3xd.html?highlight=sht31#i2c-configuration-when-using-higher-i2c-frequencies, but didn't have luck 
   
 sensor:
     # https://esphome.io/components/sensor/pmsx003.html?highlight=pms5003
@@ -119,6 +125,7 @@ sensor:
             window_size: 59
             send_every: 59
             send_first_at: 29
+      id: tvoc
     eco2_baseline:
       name: "$name eCO2 baseline"
       unit_of_measurement: "°"
@@ -147,9 +154,6 @@ sensor:
       - sliding_window_moving_average:
           window_size: 1440  # = 24 hours x 60 minutes
           send_every: 1
-    on_value:
-      then:
-        - script.execute: update_aqi
   - platform: template
     name: "$name PM <10.0µm 24h average"
     id: pm10_avg_24h
@@ -162,9 +166,6 @@ sensor:
       - sliding_window_moving_average:
           window_size: 1440  # = 24 hours x 60 minutes
           send_every: 1
-    on_value:
-      then:
-        - script.execute: update_aqi
   
   - platform: wifi_signal
     name: "$name WiFi Signal"
@@ -194,64 +195,21 @@ sensor:
               
 # A textual presentation of the AQI
 text_sensor:
-  - platform: template
-    name: "$name Air Quality Index"
-    id: aqi
-    icon: mdi:air-filter
   - platform: template  # Human Readable Uptime
     name: $name Uptime
     id: uptime_human
     icon: mdi:clock-start
-    
-# This script is called on every update of the relevant sensor values.
-script:
-  - id: update_aqi
-    mode: restart
-    then:
-      # Bad if at least one of the sensor values is bad
-      - if:
-          condition:
-            or:
-              - sensor.in_range:
-                  id: co2
-                  above: 1199
-              - sensor.in_range:
-                  id: pm2_5_avg_24h
-                  above: 25
-              - sensor.in_range:
-                  id: pm10_avg_24h
-                  above: 50
-          then:
-            - text_sensor.template.publish:
-                id: aqi
-                state: Bad
-          else:
-            # Acceptable if at least one of the sensor values is acceptable
-            - if:
-                condition:
-                  or:
-                    - sensor.in_range:
-                        id: co2
-                        above: 899
-                    - sensor.in_range:
-                        id: pm2_5_avg_24h
-                        above: 12
-                    - sensor.in_range:
-                        id: pm10_avg_24h
-                        above: 25
-                then:
-                  - text_sensor.template.publish:
-                      id: aqi
-                      state: Acceptable
-                else:
-                  # Otherwise good (all of the sensor values are good)
-                  - text_sensor.template.publish:
-                      id: aqi
-                      state: Good
+  
 
 time:
   - platform: homeassistant
     id: homeassistant_time
+
+font:
+  # gfonts://family[@weight]
+  - file: "gfonts://Roboto Mono"
+    id: roboto
+    size: 15
 
 display:
   - platform: ssd1306_i2c
@@ -260,57 +218,37 @@ display:
     id: oled_display
     reset_pin: GPIO2
     address: 0x3C
-    update_interval: 2s # May fix wifi issues. Also check i2c frequency. https://github.com/esphome/issues/issues/1329
-    pages:
-      - id: display_pm2_10
-        lambda: |-
-          if (id(homeassistant_time).now().hour > 22 || id(homeassistant_time).now().hour < 7)
-          {
-            it.print(0, 0, id(roboto), ".");
-          }
-          else
-          {
-            it.printf(0, 0, id(roboto), "2.5 %.0f", id(pm2_5).state);
-            it.printf(0, 24, id(roboto), "10  %.0f",id(pm10).state);
-          }
-      - id: display_co2
-        lambda: |-
-          if (id(homeassistant_time).now().hour > 22 || id(homeassistant_time).now().hour < 7)
-          {
-            it.print(it.get_width()/2, 0, id(roboto), TextAlign::TOP_CENTER, ".");
-          }
-          else
-          {
-            it.print(0, 0, id(roboto), "CO2");
-            it.printf(64, 24, id(roboto), TextAlign::TOP_RIGHT, "%.0f",id(co2).state);
-          }
-      # Display temp and humidity on the same page
-      - id: display_temp_humidity
-        lambda: |-
-          if (id(homeassistant_time).now().hour > 22 || id(homeassistant_time).now().hour < 7)
-          {
-            it.print(it.get_width(), 0, id(roboto), TextAlign::TOP_RIGHT, ".");
-          }
-          else
-          {
-            it.printf(0, 0, id(roboto), "%.1f°F",(id(temp).state * 1.8) + 32);
-            it.printf(64, 24, id(roboto), TextAlign::TOP_RIGHT, "%.0f%%",id(humidity).state);
-          }
+    #update_interval: 1s # May fix wifi issues. Also check i2c frequency. https://github.com/esphome/issues/issues/1329
+    lambda: |-
+      static bool dot = false;
+      
+      if (id(night_dnd).state && (id(homeassistant_time).now().hour > 22 || id(homeassistant_time).now().hour < 7))
+      {
+        if (dot)
+        {
+          it.print(0, 0, id(roboto), TextAlign::TOP_LEFT, ".");
+        }
+      }
+      else
+      {
+        it.printf(0, 0, id(roboto), "%.1f°F",(id(temp).state * 1.8) + 32);
+        it.printf(it.get_width(), 0, id(roboto), TextAlign::TOP_RIGHT, "%.0f%%",id(humidity).state);
+        it.printf(0, 15, id(roboto), "2.5    %.0f", id(pm2_5).state);
+        it.printf(0, 30, id(roboto), "CO2    %.0f", id(co2).state);
+        it.printf(0, 45, id(roboto), "VOC    %.0f", id(tvoc).state);
 
-font:
-  # gfonts://family[@weight]
-  - file: "gfonts://Roboto"
-    id: roboto
-    size: 21
-    
+        if (dot)
+        {
+          it.print(it.get_width(), it.get_height(), id(roboto), TextAlign::BOTTOM_RIGHT, ".");
+        }
+      }
+
+      dot = !dot;
+
 interval:
-  - interval: 3s
-    # Cycle through page on display
-    then:
-      - display.page.show_next: oled_display
-      - component.update: oled_display
   - interval: 180s
     # Two-minute interval to extend the life span of the PMS5003 sensor
+    startup_delay: 5s
     then:
       - switch.turn_on: pms_switch
       - delay: 45s
@@ -331,6 +269,11 @@ switch:
       - uart.write:
           id: pms5003_uart
           data: [0x42, 0x4D, 0xE4, 0x00, 0x00, 0x01, 0x73]
+  - platform: template
+    name: "Enable Night DND"
+    optimistic: True
+    id: night_dnd
+    restore_mode: ALWAYS_ON
   - platform: template
     name: "$name ABC"
     optimistic: true
