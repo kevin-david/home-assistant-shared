@@ -1,0 +1,261 @@
+# Use a power monitoring plug to make sure my sewage pump doesn't burn itself out by staying on forever
+# Happens to be an ESP32 so it can be used as a bluetooth proxy as well
+# This is a Switchbot Plug Mini Model W1901400 - 4 packs are $30 on Amazon
+# Can be flashed with https://github.com/kendallgoto/switchbota then directly to ESPHome using a "legacy" image
+substitutions:
+  name: "switchbot-XXXXXX"
+  friendly_name: "Your Friendly Pump Name Here"
+ 
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+# From https://community.home-assistant.io/t/support-for-switchbot-plug-mini-w1901400-with-bluetooth-proxying/441893
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_BT_BLE_50_FEATURES_SUPPORTED: y
+      CONFIG_BT_BLE_42_FEATURES_SUPPORTED: y
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "10"
+
+# Enable logging
+logger:
+
+#disable web server due to memory concerns as per https://esphome.io/components/bluetooth_proxy
+#web_server:
+#esp32_ble_tracker:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+wifi:
+  ssid: !secret basement_wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${name}"
+    password: !secret fallback_password
+
+captive_portal:
+
+# Sync time with Home Assistant.
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+bluetooth_proxy:
+  active: true
+
+light:
+  - platform: binary
+    internal: true
+    name: "White LED"
+    id: "white_led"
+    output: "white_output"
+
+output:
+  - id: "white_output"
+    platform: gpio
+    pin: GPIO7
+    inverted: true
+
+# set blue led as status
+status_led:
+  pin:
+    number: GPIO8
+    inverted: true
+
+number:
+  - platform: template
+    name: "Power Threshold"
+    id: power_threshold
+    restore_value: true
+    initial_value: 50
+    min_value: 0
+    max_value: 1000
+    entity_category: "CONFIG"
+    unit_of_measurement: "W"
+    optimistic: true
+    update_interval: never
+    step: 1
+    mode: box
+
+  - platform: template
+    name: "High Power Time"
+    id: high_power_time_threshold
+    restore_value: true
+    initial_value: 15
+    min_value: 5
+    max_value: 600
+    entity_category: "CONFIG"
+    unit_of_measurement: "s"
+    optimistic: true
+    update_interval: never
+    step: 1
+    mode: box
+
+  - platform: template
+    name: "Min Relay Off Time"
+    id: min_relay_off_seconds
+    restore_value: true
+    initial_value: 60
+    min_value: 15
+    max_value: 600
+    entity_category: "CONFIG"
+    unit_of_measurement: "s"
+    optimistic: true
+    update_interval: never
+    step: 1
+    mode: box
+
+switch:
+  - platform: gpio
+    name: "Relay (Raw)"
+    id: "relay_raw"
+    device_class: outlet
+    pin: 6
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_on:
+      then:
+        - light.turn_on: "white_led"
+    on_turn_off:
+      then:
+        - light.turn_off: "white_led"
+
+  - platform: template
+    name: "Relay Controller"
+    id: power_control
+    restore_mode: RESTORE_DEFAULT_ON
+    lambda: |-
+      if (id(protection_automation).state)
+      {
+        if (id(high_power_duration).state > id(high_power_time_threshold).state) {
+          id(relay_raw).turn_off();
+          id(protection_was_triggered).turn_on();
+          return false;
+        }
+        else if (id(seconds_relay_off).state > id(min_relay_off_seconds).state)
+        {
+          id(relay_raw).turn_on();
+          return true;
+        }
+      }
+
+      return id(relay_raw).state;
+    turn_on_action:
+      - switch.turn_on: "relay_raw"
+    turn_off_action:
+      - switch.turn_off: "relay_raw"
+
+  - platform: template
+    name: "Protection Automation"
+    icon: mdi:robot
+    id: protection_automation
+    optimistic: True
+    restore_mode: ALWAYS_ON
+
+  - platform: template
+    name: "Protection Was Triggered"
+    icon: mdi:alert
+    id: protection_was_triggered
+    optimistic: True
+    restore_mode: ALWAYS_OFF
+
+binary_sensor:
+  - platform: gpio
+    internal: true
+    pin:
+      number: 2
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Button"
+    filters:
+      - delayed_on: 10ms
+    on_press:
+      then:
+        - switch.turn_off: "protection_automation"
+        - switch.turn_on: "protection_was_triggered"
+        - switch.toggle: "relay_raw"
+
+sensor:
+  - platform: hlw8012
+    sel_pin:
+      number: 20
+      inverted: true
+    cf_pin: 18
+    cf1_pin: 19
+    model: BL0937
+    voltage_divider: 1467
+    current:
+      name: "Current"
+    voltage:
+      name: "Voltage"
+    power:
+      name: "Power"
+      id: "power" 
+    energy:
+      name: "Energy"
+    update_interval: 1s
+    change_mode_every: 4
+
+  - platform: template
+    name: "High Power Duration"
+    icon: mdi:timer
+    id: high_power_duration
+    unit_of_measurement: "s"
+    update_interval: 500ms
+    lambda: |-
+      static uint32_t start_time = 0;
+      if (id(protection_automation).state)
+      {
+        if (id(power).state > id(power_threshold).state)
+        {
+          if (start_time == 0)
+          {
+            start_time = millis();
+          }
+          return (millis() - start_time) / 1000.0;
+        } 
+        else 
+        {
+          start_time = 0;
+          return 0;
+        }
+      }
+
+      start_time = 0;
+      return -1;
+
+  - platform: template
+    name: "Seconds Relay Off"
+    icon: mdi:timer
+    id: seconds_relay_off
+    unit_of_measurement: "s"
+    update_interval: 1s
+    lambda: |-
+      static int seconds_relay_off = 0;
+      if (id(protection_automation).state)
+      {
+        if (!id(relay_raw).state) 
+        {
+          seconds_relay_off++;
+        }
+        else
+        {
+          seconds_relay_off = 0;
+        }
+  
+        return seconds_relay_off;
+      }
+      
+      seconds_relay_off = 0;
+      return -1;
