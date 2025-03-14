@@ -1,13 +1,13 @@
 blueprint:
   name: Temporary Automations Pause
   description: >
-    Temporarily pause multiple automations and optionally perform an action 
+    Temporarily pause one or more automations and optionally perform an action 
     afterwards (e.g. disable motion lights & turn them off)
   domain: automation
   input:
     target_automations:
       name: Target Automations
-      description: The automations that will be temporarily disabled.
+      description: Will be temporarily disabled
       selector:
         target:
           entity:
@@ -22,20 +22,14 @@ blueprint:
         action: {}
     pause_trigger:
       name: Pause Trigger
-      description: >
-        Select what will trigger the pause. This can be any type of trigger:
-          - An input button state change
-          - A specific event
-          - A device trigger (like a button press)
-          - A time pattern
-          - etc.
+      description: What will trigger the pause. If it's manual, use an input button [helper](/config/helpers).
       selector:
         trigger:
     pause_input_switch:
       name: Pause Switch
       description: >
         Input boolean to use to track the pause.
-        Create from [helpers](/config/helpers).
+        **MUST** Create from [helpers](/config/helpers).
       selector:
         entity:
           filter:
@@ -44,7 +38,7 @@ blueprint:
       name: Countdown Counter
       description: >
         Counter used to track the **minutes** until the automation is re-enabled.
-        Create from [helpers](/config/helpers). 
+        **MUST** Create from [helpers](/config/helpers). 
         Tips:
           - **Max** should be the number of minutes you want the automation disabled
           - **Min** should be 0
@@ -59,7 +53,7 @@ blueprint:
       description: >
         **Minutes-based** time pattern for how often to re-run this automation 
         to see if the target automation should be turned off. e.g. `/5`. 
-        **MUST MATCH COUNTER STEP SIZE**.
+        **MUST** match counter step size.
 
 variables:
   my_reversal_action: !input "reversal_action"

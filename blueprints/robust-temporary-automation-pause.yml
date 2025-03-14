@@ -1,3 +1,6 @@
+## DEPRECATED - Use the multi-automation pause blueprint instead.
+## Left here for existing uses to not force a migration.
+
 blueprint:
   name: Temporary Automation Pause
   description: >
