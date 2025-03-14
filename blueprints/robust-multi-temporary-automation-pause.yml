@@ -57,14 +57,23 @@ blueprint:
 
 variables:
   my_reversal_action: !input "reversal_action"
+  # Create a list of trigger IDs that should be treated as initial triggers
+  initial_trigger_ids: "{{ trigger.ids | select('match', '^initial_\\d+$') | list }}"
 
-trigger: !input pause_trigger
+trigger:
+  # User-defined triggers (can be multiple) will all be treated as initial triggers
+  - !input pause_trigger
+  # Our internal countdown trigger
+  - platform: time_pattern
+    minutes: !input check_countdown_internal
+    id: countdown
 
 action:
   - choose:
       - conditions:
-          - condition: trigger
-            id: initial
+          # If it's not the countdown trigger, it must be one of the user's triggers
+          - condition: template
+            value_template: "{{ trigger.id != 'countdown' }}"
         sequence:
           - service: automation.turn_off
             target: !input target_automations
