@@ -12,6 +12,11 @@ blueprint:
         target:
           entity:
             domain: automation
+    pause_trigger:
+      name: Pause Trigger
+      description: What will trigger the pause. If it's manual, use an input button [helper](/config/helpers).
+      selector:
+        trigger:
     reversal_action:
       name: Action after disabling the automations
       description: >
@@ -20,11 +25,6 @@ blueprint:
       default: []
       selector:
         action: {}
-    pause_trigger:
-      name: Pause Trigger
-      description: What will trigger the pause. If it's manual, use an input button [helper](/config/helpers).
-      selector:
-        trigger:
     pause_input_switch:
       name: Pause Switch
       description: >
