@@ -6,7 +6,7 @@ blueprint:
     by another automation rather than directly by a button press.
   domain: automation
   input:
-    target_automation:
+    target_automations:
       name: Target Automations
       description: The automations that will be temporarily disabled.
       selector:
