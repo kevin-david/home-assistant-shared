@@ -20,32 +20,17 @@ blueprint:
       default: []
       selector:
         action: {}
-    trigger_type:
-      name: Trigger Type
+    pause_trigger:
+      name: Pause Trigger
       description: >
-        Choose whether to trigger the pause using an input button or an event.
+        Select what will trigger the pause. This can be any type of trigger:
+          - An input button state change
+          - A specific event
+          - A device trigger (like a button press)
+          - A time pattern
+          - etc.
       selector:
-        select:
-          options:
-            - "input_button"
-            - "event"
-    pause_button:
-      name: Pause Button
-      description: >
-        Initial trigger for the automation - what you press to begin the pause.
-        Only used if Trigger Type is set to input_button.
-        Create from [helpers](/config/helpers).
-      selector:
-        entity:
-          filter:
-            - domain: input_button
-      default: ""
-    event_type:
-      name: Event Type
-      description: >
-        The event type that will trigger the pause (e.g. in_wall_toggle_switch_qfsw_700s_scene_001).
-        Only used if Trigger Type is set to event.
-      default: ""
+        trigger:
     pause_input_switch:
       name: Pause Switch
       description: >
@@ -79,18 +64,7 @@ blueprint:
 variables:
   my_reversal_action: !input "reversal_action"
 
-trigger:
-  - platform: state
-    entity_id: !input pause_button
-    id: initial
-    enabled: "{{ trigger_type == 'input_button' }}"
-  - platform: event
-    event_type: !input event_type
-    id: initial
-    enabled: "{{ trigger_type == 'event' }}"
-  - platform: time_pattern
-    minutes: !input check_countdown_internal
-    id: countdown
+trigger: !input pause_trigger
 
 action:
   - choose:
