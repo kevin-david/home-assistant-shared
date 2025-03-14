@@ -1,0 +1,125 @@
+blueprint:
+  name: Temporary Automations Pause
+  description: >
+    Temporarily pause multiple automations and optionally perform an action 
+    afterwards (e.g. disable motion lights & turn them off)
+  domain: automation
+  input:
+    target_automations:
+      name: Target Automations
+      description: The automations that will be temporarily disabled.
+      selector:
+        target:
+          entity:
+            domain: automation
+    reversal_action:
+      name: Action after disabling the automations
+      description: >
+        Intended to do something like turn on or off devices/lights
+        after your automations are temporarily disabled.
+      default: []
+      selector:
+        action: {}
+    pause_button:
+      name: Pause Button
+      description: >
+        Initial trigger for the automation - what you press to begin the pause.
+        Create from [helpers](/config/helpers).
+      selector:
+        entity:
+          filter:
+            - domain: input_button
+    pause_input_switch:
+      name: Pause Switch
+      description: >
+        Input boolean to use to track the pause.
+        Create from [helpers](/config/helpers).
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+    countdown_counter:
+      name: Countdown Counter
+      description: >
+        Counter used to track the **minutes** until the automation is re-enabled.
+        Create from [helpers](/config/helpers). 
+        Tips:
+          - **Max** should be the number of minutes you want the automation disabled
+          - **Min** should be 0
+          - **Step Size** should match the number of minutes in **Countdown check time pattern** below
+          - Leave **Restore the last known value when Home Assistant starts** enabled (this makes things robust)
+      selector:
+        entity:
+          filter:
+            - domain: counter
+    check_countdown_internal:
+      name: Countdown check time pattern (minutes)
+      description: >
+        **Minutes-based** time pattern for how often to re-run this automation 
+        to see if the target automation should be turned off. e.g. `/5`. 
+        **MUST MATCH COUNTER STEP SIZE**.
+
+variables:
+  my_reversal_action: !input "reversal_action"
+
+trigger:
+  - platform: state
+    entity_id:
+      - !input pause_button
+    id: initial
+  - platform: time_pattern
+    minutes: !input check_countdown_internal
+    id: countdown
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: initial
+        sequence:
+          - service: automation.turn_off
+            target: !input target_automations
+          - alias: Do something after turning off the automations
+            if: "{{ not my_reversal_action in ('none', 'null', 'unavailable', '') }}"
+            then: !input "reversal_action"
+          - service: input_boolean.turn_on
+            target:
+              entity_id: !input pause_input_switch
+          - service: counter.reset
+            target:
+              entity_id: !input countdown_counter
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: trigger
+                id: countdown
+              - condition: numeric_state
+                entity_id: !input countdown_counter
+                above: 0
+              - condition: state
+                entity_id: !input pause_input_switch
+                state: "on"
+        sequence:
+          - service: counter.decrement
+            target:
+              entity_id: !input countdown_counter
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: trigger
+                id: countdown
+              - condition: numeric_state
+                entity_id: !input countdown_counter
+                below: 1
+              - condition: state
+                entity_id: !input pause_input_switch
+                state: "on"
+        sequence:
+          - service: automation.turn_on
+            target: !input target_automations
+          - service: counter.reset
+            target:
+              entity_id: !input countdown_counter
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input pause_input_switch
