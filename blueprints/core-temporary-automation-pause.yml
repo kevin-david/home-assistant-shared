@@ -4,6 +4,20 @@ blueprint:
     Core version of the temporary automation pause blueprint that only handles 
     the automation disablement, trigger, and countdown. Designed to be triggered 
     by another automation rather than directly by a button press.
+    
+    To trigger this automation from another automation:
+    ```yaml
+    - service: automation.trigger
+      target:
+        entity_id: automation.your_pause_automation_id
+    ```
+    
+    Note: Replace "your_pause_automation_id" with the actual entity ID
+    of the automation created from this blueprint.
+    
+    This can be easily done through the Home Assistant UI by adding an action
+    to your automation and selecting "Call service" > "automation.trigger" and
+    then selecting this automation from the dropdown.
   domain: automation
   input:
     target_automations:
@@ -41,7 +55,7 @@ blueprint:
         Tips:
           - **Max** should be at least the maximum pause duration you'll use
           - **Min** should be 0
-          - **Step Size** should match the number of minutes in **Countdown check time pattern** below
+          - **Step Size** should be 1 (for minute-by-minute countdown)
           - Leave **Restore the last known value when Home Assistant starts** enabled (this makes things robust)
       selector:
         entity:
@@ -58,10 +72,13 @@ blueprint:
 
 trigger:
   - platform: event
-    event_type: automation_triggered
+    event_type: call_service
     event_data:
-      name: core_temp_pause_trigger
-    id: initial
+      domain: automation
+      service: trigger
+      service_data:
+        automation_id: this.entity_id
+    id: direct_trigger
   - platform: time_pattern
     minutes: !input check_countdown_interval
     id: countdown
@@ -73,7 +90,7 @@ action:
   - choose:
       - conditions:
           - condition: trigger
-            id: initial
+            id: direct_trigger
         sequence:
           - service: automation.turn_off
             target: !input target_automations
