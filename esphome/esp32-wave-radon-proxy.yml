@@ -39,14 +39,7 @@ external_components:
     components: [airthings_wave_plus]
     refresh: 0s
 
-# Conversion factor for Radon - https://help.airthings.com/en/articles/3119854-radon-what-is-the-difference-between-pci-l-and-bq-m3
-# Wave2 sensor bytes https://ztroop.github.io/wave-reader-utils/specs/#ti-over-the-air-download-service
-# Maybe needed - 
-# filters:
-#   - filter_out: nan
-#     unit_of_measurement: "pCi/L"
-# to farenheit (float)((temp * (9.0f/5.0f)) + 32.0f);
-
+# (Dead but for history) Wave2 sensor bytes https://ztroop.github.io/wave-reader-utils/specs/#ti-over-the-air-download-service
 sensor:
   - platform: airthings_wave_plus
     name: wave_plus
@@ -103,6 +96,40 @@ sensor:
     name: Bento Front Fan Speed
     filters:
       - multiply: 0.5
+
+  # Template sensors to convert radon measurements from Bq/m³ to pCi/L
+  # Conversion factor for Radon - https://help.airthings.com/en/articles/3119854-radon-what-is-the-difference-between-pci-l-and-bq-m3
+  - platform: template
+    name: "Airthings ${wave_serial} Radon: Short Term"
+    id: "airthings_${wave_serial}_radon"
+    unit_of_measurement: "pCi/L"
+    state_class: "measurement"
+    accuracy_decimals: 2
+    icon: "mdi:radioactive"
+    lambda: |-
+      if (isnan(id(airthings_${wave_serial}_radon_raw).state)) {
+        return NAN;
+      } else {
+        return id(airthings_${wave_serial}_radon_raw).state / 37.0f;
+      }
+    filters:
+      - filter_out: nan
+
+  - platform: template
+    name: "Airthings ${wave_serial} Radon: Long Term"
+    id: "airthings_${wave_serial}_radon_long_term"
+    unit_of_measurement: "pCi/L"
+    state_class: "measurement"
+    accuracy_decimals: 2
+    icon: "mdi:radioactive"
+    lambda: |-
+      if (isnan(id(airthings_${wave_serial}_radon_long_term_raw).state)) {
+        return NAN;
+      } else {
+        return id(airthings_${wave_serial}_radon_long_term_raw).state / 37.0f;
+      }
+    filters:
+      - filter_out: nan
 
 ble_client:
   - mac_address: $wave_bluetooth_mac
