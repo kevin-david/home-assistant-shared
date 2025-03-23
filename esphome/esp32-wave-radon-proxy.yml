@@ -8,6 +8,7 @@ substitutions:
   # Note: This will impact battery life of the Wave device.
   # Radon only seems to be updated about every ~hour but temp/humidity can be much more frequent
   # Choose according to your needs
+  # NOTE: Check out https://github.com/esphome/feature-requests/issues/1795#issuecomment-2745514146 for an improved version
   airthings_update_interval: "30min"
 
 esphome:
@@ -45,6 +46,7 @@ sensor:
     characteristic_uuid: 'b42e4dcc-ade7-11e4-89d3-123b93f75cba'
     unit_of_measurement: "pCi/L"
     accuracy_decimals: 2
+    state_class: measurement
     lambda: |-
       uint16_t radon_sta = x[4];
       radon_sta += (x[5] << 8);
@@ -63,6 +65,7 @@ sensor:
     characteristic_uuid: 'b42e4dcc-ade7-11e4-89d3-123b93f75cba'
     unit_of_measurement: "pCi/L"
     accuracy_decimals: 2
+    state_class: measurement
     lambda: |-
       uint16_t radon_lta = x[6];
       radon_lta += (x[7] << 8);
@@ -81,6 +84,7 @@ sensor:
     characteristic_uuid: 'b42e4dcc-ade7-11e4-89d3-123b93f75cba'
     unit_of_measurement: "°F"
     accuracy_decimals: 2
+    state_class: measurement
     lambda: |-
       uint16_t temperature = x[8];
       temperature += (x[9] << 8);
@@ -100,6 +104,7 @@ sensor:
     characteristic_uuid: 'b42e4dcc-ade7-11e4-89d3-123b93f75cba'
     unit_of_measurement: "%"
     accuracy_decimals: 1
+    state_class: measurement
     lambda: |-
       uint8_t humidity = x[1];
       float humidity_calc = humidity / 2.0f;
@@ -116,9 +121,72 @@ sensor:
     id: uptime_sensor
     update_interval: 5min
 
+  - platform: pulse_counter
+    pin: 
+      number: GPIO4
+      mode: INPUT_PULLUP
+    unit_of_measurement: 'RPM'
+    accuracy_decimals: 0
+    update_interval: 5s
+    id: x1c_bento_rear_fan_speed
+    name: Bento Rear Fan Speed
+    filters:
+      - multiply: 0.5
+  
+  - platform: pulse_counter
+    pin: 
+      number: GPIO17
+      mode: INPUT_PULLUP
+    unit_of_measurement: 'RPM'
+    accuracy_decimals: 0
+    update_interval: 5s
+    id: x1c_bento_front_fan_speed
+    name: Bento Front Fan Speed
+    filters:
+      - multiply: 0.5
+
 ble_client:
   - mac_address: $wave_bluetooth_mac
     id: "airthings_$wave_serial"
+
+output:
+  - platform: ledc
+    pin:
+      number: GPIO32
+      inverted: false
+      mode: OUTPUT
+    id: rear_fan_pwm
+    frequency: 25000 Hz
+  - platform: ledc
+    pin:
+      number: GPIO33
+      inverted: false
+      mode: OUTPUT
+    id: front_fan_pwm
+    frequency: 25000 Hz
+  - platform: ledc
+    id: ams_riser_led
+    pin:
+      number: GPIO26
+      mode: OUTPUT
+
+light:
+  - platform: monochromatic
+    output: ams_riser_led
+    icon: mdi:led-strip-variant
+    name: "AMS Riser LED"
+
+fan:
+  - platform: speed
+    output: front_fan_pwm
+    name: Bento Front Fan
+    id: x1c_bento_front_fan
+    speed_count: 20
+  - platform: speed
+    output: rear_fan_pwm
+    name: Bento Rear Fan
+    id: x1c_bento_rear_fan
+    speed_count: 20
 
 wifi:
   ssid: !secret wifi_ssid
