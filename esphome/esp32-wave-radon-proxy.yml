@@ -18,7 +18,6 @@ esp32:
   board: esp32dev
   framework:
     type: esp-idf
-    version: recommended
 
 # Enable logging
 logger:
@@ -27,90 +26,50 @@ logger:
 api:
 
 ota:
+  platform: esphome
 
-esp32_ble_tracker:
+# Disabled since they interfere with ble client
+#esp32_ble_tracker:
+#bluetooth_proxy:
+#  active: true
 
-bluetooth_proxy:
+external_components:
+  # https://github.com/esphome/feature-requests/issues/1795#issuecomment-2745514146
+  - source: github://precurse/esphome_airthings_wave_radon
+    components: [airthings_wave_plus]
+    refresh: 0s
 
+# Conversion factor for Radon - https://help.airthings.com/en/articles/3119854-radon-what-is-the-difference-between-pci-l-and-bq-m3
 # Wave2 sensor bytes https://ztroop.github.io/wave-reader-utils/specs/#ti-over-the-air-download-service
+# Maybe needed - 
+# filters:
+#   - filter_out: nan
+#     unit_of_measurement: "pCi/L"
+# to farenheit (float)((temp * (9.0f/5.0f)) + 32.0f);
+
 sensor:
-  # Conversion factor for Radon - https://help.airthings.com/en/articles/3119854-radon-what-is-the-difference-between-pci-l-and-bq-m3
-  - platform: ble_client
-    type: characteristic
-    ble_client_id: "airthings_$wave_serial"
-    update_interval: $airthings_update_interval
-    name: "Airthings ${wave_serial} Radon: Short Term"
-    id: "airthings_${wave_serial}_radon"
-    icon: 'mdi:radioactive'
-    service_uuid: 'B42E4A8E-ADE7-11E4-89D3-123B93F75CBA'
-    characteristic_uuid: 'b42e4dcc-ade7-11e4-89d3-123b93f75cba'
-    unit_of_measurement: "pCi/L"
-    accuracy_decimals: 2
-    state_class: measurement
-    lambda: |-
-      uint16_t radon_sta = x[4];
-      radon_sta += (x[5] << 8);
-      return (float)(radon_sta / 37.0f);
-    filters:
-      - filter_out: nan
-
-  - platform: ble_client
-    type: characteristic
+  - platform: airthings_wave_plus
+    name: wave_plus
     ble_client_id: "airthings_$wave_serial"
     update_interval: $airthings_update_interval 
-    name: "Airthings ${wave_serial} Radon: Long Term"
-    id: "airthings_${wave_serial}_radon_long_term"
-    icon: 'mdi:radioactive'
-    service_uuid: 'B42E4A8E-ADE7-11E4-89D3-123B93F75CBA'
-    characteristic_uuid: 'b42e4dcc-ade7-11e4-89d3-123b93f75cba'
-    unit_of_measurement: "pCi/L"
-    accuracy_decimals: 2
-    state_class: measurement
-    lambda: |-
-      uint16_t radon_lta = x[6];
-      radon_lta += (x[7] << 8);
-      return (float)(radon_lta / 37.0f);
-    filters:
-      - filter_out: nan
-
-  - platform: ble_client
-    type: characteristic
-    ble_client_id: "airthings_$wave_serial"
-    update_interval: $airthings_update_interval 
-    name: "Airthings ${wave_serial} Temperature"
-    id: "airthings_${wave_serial}_temperature"
-    icon: 'mdi:thermometer'
-    service_uuid: 'B42E4A8E-ADE7-11E4-89D3-123B93F75CBA'
-    characteristic_uuid: 'b42e4dcc-ade7-11e4-89d3-123b93f75cba'
-    unit_of_measurement: "°F"
-    accuracy_decimals: 2
-    state_class: measurement
-    lambda: |-
-      uint16_t temperature = x[8];
-      temperature += (x[9] << 8);
-      float temp = temperature / 100.0f;
-      return (float)((temp * (9.0f/5.0f)) + 32.0f);
-    filters:
-      - filter_out: nan
-
-  - platform: ble_client
-    type: characteristic
-    ble_client_id: "airthings_$wave_serial"
-    update_interval: $airthings_update_interval 
-    name: "Airthings ${wave_serial} Relative Humidity"
-    id: "airthings_${wave_serial}_relative_humidity"
-    icon: 'mdi:water-percent'
-    service_uuid: 'B42E4A8E-ADE7-11E4-89D3-123B93F75CBA'
-    characteristic_uuid: 'b42e4dcc-ade7-11e4-89d3-123b93f75cba'
-    unit_of_measurement: "%"
-    accuracy_decimals: 1
-    state_class: measurement
-    lambda: |-
-      uint8_t humidity = x[1];
-      float humidity_calc = humidity / 2.0f;
-      return humidity_calc;
-    filters:
-      - filter_out: nan
+    battery_update_interval: $airthings_battery_update_interval 
+    temperature:
+      name: "Airthings ${wave_serial} Temperature"
+      id: "airthings_${wave_serial}_temperature"
+    radon:
+      name: "Airthings ${wave_serial} Radon: Short Term (Raw)"
+      id: "airthings_${wave_serial}_radon_raw"
+    radon_long_term:
+      name: "Airthings ${wave_serial} Radon: Long Term (Raw)"
+      id: "airthings_${wave_serial}_radon_long_term_raw"
+    pressure:
+      name: "Airthings ${wave_serial} Pressure"
+    humidity:
+      name: "Airthings ${wave_serial} Relative Humidity"
+      id: "airthings_${wave_serial}_relative_humidity"
+    battery_voltage:
+      name: "Airthings ${wave_serial} Battery Voltage"
+      id: "airthings_${wave_serial}_battery_voltage"
 
   - platform: wifi_signal
     name: "$name WiFi Signal"
