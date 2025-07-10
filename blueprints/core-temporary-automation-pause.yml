@@ -57,14 +57,6 @@ blueprint:
         text:
 
 trigger:
-  - platform: event
-    event_type: call_service
-    event_data:
-      domain: automation
-      service: trigger
-      service_data:
-        automation_id: this.entity_id
-    id: direct_trigger
   - platform: time_pattern
     minutes: !input check_countdown_interval
     id: countdown
@@ -74,20 +66,6 @@ variables:
 
 action:
   - choose:
-      - conditions:
-          - condition: trigger
-            id: direct_trigger
-        sequence:
-          - service: automation.turn_off
-            target: !input target_automations
-          - service: input_boolean.turn_on
-            target:
-              entity_id: !input pause_input_switch
-          - service: counter.set_value
-            data:
-              value: "{{ pause_duration }}"
-            target:
-              entity_id: !input countdown_counter
       - conditions:
           - condition: and
             conditions:
@@ -123,3 +101,15 @@ action:
           - service: input_boolean.turn_off
             target:
               entity_id: !input pause_input_switch
+    default:
+      sequence:
+        - service: automation.turn_off
+          target: !input target_automations
+        - service: input_boolean.turn_on
+          target:
+            entity_id: !input pause_input_switch
+        - service: counter.set_value
+          data:
+            value: "{{ pause_duration }}"
+          target:
+            entity_id: !input countdown_counter
