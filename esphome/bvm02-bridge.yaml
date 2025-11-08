@@ -1,11 +1,9 @@
-# Use a power monitoring plug to make sure my sewage pump doesn't burn itself out by staying on forever
-# Happens to be an ESP32 so it can be used as a bluetooth proxy as well
 # This is a Switchbot Plug Mini Model W1901400 - 4 packs are $30 on Amazon
 # Can be flashed with https://github.com/kendallgoto/switchbota then directly to ESPHome using a "legacy" image
 substitutions:
-  name: "switchbot-a72ef4"
+  name: "switchbot-partial-mac"
   friendly_name: "BVM02 Bridge"
-  bvm02_ble_mac: "A4:C1:38:49:DA:0D"
+  bvm02_ble_mac: "fix:me:mac:address"
  
 esphome:
   name: ${name}
