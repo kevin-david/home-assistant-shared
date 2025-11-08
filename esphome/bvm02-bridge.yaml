@@ -1,0 +1,174 @@
+# Use a power monitoring plug to make sure my sewage pump doesn't burn itself out by staying on forever
+# Happens to be an ESP32 so it can be used as a bluetooth proxy as well
+# This is a Switchbot Plug Mini Model W1901400 - 4 packs are $30 on Amazon
+# Can be flashed with https://github.com/kendallgoto/switchbota then directly to ESPHome using a "legacy" image
+substitutions:
+  name: "switchbot-a72ef4"
+  friendly_name: "BVM02 Bridge"
+  bvm02_ble_mac: "A4:C1:38:49:DA:0D"
+ 
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+# From https://community.home-assistant.io/t/support-for-switchbot-plug-mini-w1901400-with-bluetooth-proxying/441893
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_BT_BLE_50_FEATURES_SUPPORTED: y
+      CONFIG_BT_BLE_42_FEATURES_SUPPORTED: y
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "10"
+
+# Enable logging
+logger:
+
+#disable web server due to memory concerns as per https://esphome.io/components/bluetooth_proxy
+#web_server:
+# esp32_ble_tracker:
+#  max_connections: 3
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+wifi:
+  ssid: !secret basement_wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${name}"
+    password: !secret fallback_password
+
+captive_portal:
+
+# Sync time with Home Assistant.
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# Disable in favor of ble_client
+# bluetooth_proxy:
+#  active: true
+ble_client:
+  - mac_address: ${bvm02_ble_mac}
+    id: bvm02_battery_meter
+    auto_connect: false
+    
+
+light:
+  - platform: binary
+    internal: true
+    name: "White LED"
+    id: "white_led"
+    output: "white_output"
+
+output:
+  - id: "white_output"
+    platform: gpio
+    pin: GPIO7
+    inverted: true
+
+# set blue led as status
+status_led:
+  pin:
+    number: GPIO8
+    inverted: true
+
+switch:
+  - platform: gpio
+    name: "Relay"
+    id: "relay_raw"
+    device_class: outlet
+    pin: 6
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_on:
+      then:
+        - light.turn_on: "white_led"
+    on_turn_off:
+      then:
+        - light.turn_off: "white_led"
+
+binary_sensor:
+  - platform: gpio
+    internal: true
+    pin:
+      number: 2
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Button"
+    filters:
+      - delayed_on: 10ms
+    on_press:
+      then:
+        - switch.toggle: "relay_raw"
+
+sensor:
+  - platform: hlw8012
+    sel_pin:
+      number: 20
+      inverted: true
+    cf_pin: 18
+    cf1_pin: 19
+    model: BL0937
+    voltage_divider: 1416
+    current_resistor: 0.00092141
+    current:
+      name: "Current"
+    voltage:
+      name: "Voltage"
+    power:
+      name: "Power"
+      id: "power" 
+    energy:
+      name: "Energy"
+    update_interval: 1s
+    change_mode_every: 4
+
+  # https://community.home-assistant.io/t/integrate-bluetooth-battery-monitoring-devices-cars-motorbikes-etc/511181/169
+  - platform: ble_client
+    ble_client_id: bvm02_battery_meter
+    type: characteristic
+    name: BVM02 Voltage
+    service_uuid: 'fff0'
+    characteristic_uuid: 'fff2'
+    unit_of_measurement: 'V'
+    accuracy_decimals: 2
+    state_class: measurement
+    device_class: voltage
+    notify: true
+    update_interval: 5s
+    lambda: |-
+      return (x[1] | (x[0] << 8)) / 100.0f;
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 3
+          send_every: 3
+          send_first_at: 3
+
+button:
+  - platform: template
+    name: "Update BVM02 Voltage"
+    icon: "mdi:refresh"
+    on_press:
+      - script.execute: update_bvm02_voltage
+
+script:
+  - id: update_bvm02_voltage
+    then:
+      - ble_client.connect: bvm02_battery_meter
+      - delay: 35s
+      - ble_client.disconnect: bvm02_battery_meter
+
+interval:
+  - interval: 10min
+    then:
+      - script.execute: update_bvm02_voltage
